@@ -7,7 +7,7 @@ local Window = Rayfield:CreateWindow({
    LoadingSubtitle = "by Nerixus",
    ShowText = "Rayfield",
    Theme = "Default",
-   ToggleUIKeybind = "K",
+   ToggleUIKeybind = Enum.KeyCode.K,
 
    DisableRayfieldPrompts = false,
    DisableBuildWarnings = false,
@@ -32,7 +32,7 @@ local Window = Rayfield:CreateWindow({
       FileName = "NerixusHub Key",
       SaveKey = true,
       GrabKeyFromSite = true,
-      Key = {"https://pastebin.com/raw/pinedSa4"}
+      Key = "https://pastebin.com/raw/pinedSa4"
    }
 })
 
@@ -47,20 +47,21 @@ local mouse = LocalPlayer:GetMouse()
 local MainTab = Window:CreateTab("Main", nil)
 local MainSection = MainTab:CreateSection("Main Features")
 
--- Infinite Jump
+-- Infinite Jump Fix: connect once
 local InfiniteJumpEnabled = false
+UIS.JumpRequest:Connect(function()
+   if InfiniteJumpEnabled then
+      local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+      if humanoid then
+         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+      end
+   end
+end)
+
 MainTab:CreateButton({
-   Name = "Infinite Jump",
+   Name = "Toggle Infinite Jump",
    Callback = function()
       InfiniteJumpEnabled = not InfiniteJumpEnabled
-      UIS.JumpRequest:Connect(function()
-         if InfiniteJumpEnabled then
-            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-               humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-         end
-      end)
       Rayfield:Notify({
          Title = "Infinite Jump",
          Content = "Toggled " .. (InfiniteJumpEnabled and "On" or "Off"),
@@ -78,7 +79,13 @@ MainTab:CreateSlider({
    CurrentValue = 16,
    Flag = "Slider1",
    Callback = function(Value)
-      LocalPlayer.Character.Humanoid.WalkSpeed = Value
+      local char = LocalPlayer.Character
+      if char then
+         local humanoid = char:FindFirstChildOfClass("Humanoid")
+         if humanoid then
+            humanoid.WalkSpeed = Value
+         end
+      end
    end,
 })
 
@@ -86,7 +93,7 @@ MainTab:CreateSlider({
 MainTab:CreateDropdown({
    Name = "Teleport Options",
    Options = {"Carpet", "Base"},
-   CurrentOption = {"Base"},
+   CurrentOption = "Base",
    MultipleOptions = false,
    Flag = "Teleport",
    Callback = function(Option)
@@ -102,7 +109,10 @@ TeleportTab:CreateButton({
    Name = "Teleport to Base",
    Callback = function()
       print("Teleported to Base")
-      -- Add actual teleport logic
+      local char = LocalPlayer.Character
+      if char and char:FindFirstChild("HumanoidRootPart") then
+         char.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(0, 10, 0)) -- example position
+      end
    end,
 })
 
@@ -110,23 +120,16 @@ TeleportTab:CreateButton({
    Name = "Teleport to Carpet",
    Callback = function()
       print("Teleported to Carpet")
-      -- Add actual teleport logic
+      local char = LocalPlayer.Character
+      if char and char:FindFirstChild("HumanoidRootPart") then
+         char.HumanoidRootPart.CFrame = CFrame.new(Vector3.new(50, 10, 50)) -- example position
+      end
    end,
 })
 
 -- === MISC TAB ===
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 local MiscSection = MiscTab:CreateSection("Extras")
-
--- Auto Farm Toggle
-MiscTab:CreateToggle({
-   Name = "Auto Farm",
-   CurrentValue = false,
-   Flag = "ToggleAutoFarm",
-   Callback = function(Value)
-      print("Auto Farm is", Value and "Enabled" or "Disabled")
-   end,
-})
 
 -- Tap to Teleport Toggle
 local TapToTeleportEnabled = false
@@ -158,13 +161,12 @@ end)
 
 -- === FLING FEATURE ===
 
--- Dropdown to select target
 local selectedTarget = nil
 
 MiscTab:CreateDropdown({
    Name = "Fling Target",
    Options = {},
-   CurrentOption = {},
+   CurrentOption = nil,
    Flag = "FlingTarget",
    Callback = function(Option)
       selectedTarget = Option
@@ -176,7 +178,7 @@ MiscTab:CreateDropdown({
    end,
 })
 
--- Update dropdown with players
+-- Update dropdown with players safely
 task.spawn(function()
    while true do
       local names = {}
@@ -185,12 +187,14 @@ task.spawn(function()
             table.insert(names, player.Name)
          end
       end
-      Rayfield.Flags["FlingTarget"]:SetOptions(names)
+      local flingDropdown = Rayfield.Flags["FlingTarget"]
+      if flingDropdown and flingDropdown.SetOptions then
+         flingDropdown:SetOptions(names)
+      end
       task.wait(5)
    end
 end)
 
--- Fling Toggle
 local flingEnabled = false
 local flingLoop = nil
 
@@ -202,12 +206,13 @@ MiscTab:CreateToggle({
       flingEnabled = Value
 
       if flingEnabled then
-         if not selectedTarget then
+         if not selectedTarget or selectedTarget == "" then
             Rayfield:Notify({
                Title = "Fling Failed",
                Content = "Select a player first.",
                Duration = 3
             })
+            Rayfield.Flags["FlingToggle"]:Set(false)
             return
          end
 
@@ -222,22 +227,24 @@ MiscTab:CreateToggle({
             local character = LocalPlayer.Character
             local targetChar = targetPlayer and targetPlayer.Character
 
-            if character and targetChar and character:FindFirstChild("HumanoidRootPart") and targetChar:FindFirstChild("HumanoidRootPart") then
-               local hrp = character.HumanoidRootPart
-               local targetHRP = targetChar.HumanoidRootPart
+            if character and targetChar then
+               local hrp = character:FindFirstChild("HumanoidRootPart")
+               local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
 
-               -- Move close to target
-               hrp.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 2)
-
-               -- Apply fling force
-               hrp.AssemblyAngularVelocity = Vector3.new(999999, 999999, 999999)
-               hrp.RotVelocity = Vector3.new(999999, 999999, 999999)
-               hrp.Velocity = Vector3.new(100, 100, 100)
-               hrp.CanCollide = true
+               if hrp and targetHRP then
+                  hrp.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 2)
+                  hrp.AssemblyAngularVelocity = Vector3.new(999999, 999999, 999999)
+                  hrp.RotVelocity = Vector3.new(999999, 999999, 999999)
+                  hrp.Velocity = Vector3.new(100, 100, 100)
+                  hrp.CanCollide = true
+               end
             end
          end)
       else
-         if flingLoop then flingLoop:Disconnect() end
+         if flingLoop then
+            flingLoop:Disconnect()
+            flingLoop = nil
+         end
          local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
          if hrp then
             hrp.AssemblyAngularVelocity = Vector3.zero
